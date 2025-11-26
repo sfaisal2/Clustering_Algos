@@ -1,289 +1,180 @@
 import numpy as np
-import pandas as pd
 import matplotlib.pyplot as plt
 from sklearn.cluster import KMeans, DBSCAN
-from sklearn.metrics import confusion_matrix
-from sklearn.preprocessing import StandardScaler
-from sklearn.metrics.pairwise import euclidean_distances
-import seaborn as sns
 from itertools import product
 
-#load dataset
-def load_data(filename):
-    data = np.loadtxt(filename, delimiter=',')
-    X = data[:, :2] 
-    y_true = data[:, 2].astype(int)
-    return X, y_true
+#load data
+data = np.loadtxt('complex9_gn8.txt', delimiter=',')
+X = data[:, :2]
+y_true = data[:, 2].astype(int)
 
 # Activity 1: Implement the Purity measure
 def purity(a, b, outliers=False):
-    # Handle outliers (cluster label -1 in Python)
     if -1 in a:
         outlier_mask = a == -1
-        non_outlier_mask = ~outlier_mask
-        a_clean = a[non_outlier_mask]
-        b_clean = b[non_outlier_mask]
-        outlier_percentage = np.sum(outlier_mask) / len(a)
+        a_clean = a[~outlier_mask]
+        b_clean = b[~outlier_mask]
+        outlier_perc = np.sum(outlier_mask) / len(a)
     else:
         a_clean = a
         b_clean = b
-        outlier_percentage = 0.0
+        outlier_perc = 0.0
     
     if len(a_clean) == 0:
-        return (0.0, outlier_percentage) if outliers else 0.0
+        return (0.0, outlier_perc) if outliers else 0.0
     
-    # Get unique clusters
     clusters = np.unique(a_clean)
-    
     total_majority = 0
-    total_points = len(a_clean)
     
     for cluster in clusters:
-        if cluster == -1:  # Skip outliers
+        if cluster == -1:
             continue
-            
         cluster_mask = a_clean == cluster
-        if np.sum(cluster_mask) == 0:
-            continue
-            
         cluster_labels = b_clean[cluster_mask]
-        
-        # Find majority class in this cluster
         unique, counts = np.unique(cluster_labels, return_counts=True)
-        majority_count = np.max(counts)
-        total_majority += majority_count
+        total_majority += np.max(counts)
     
-    purity_value = total_majority / total_points if total_points > 0 else 0.0
-    
-    if outliers:
-        return (purity_value, outlier_percentage)
-    else:
-        return purity_value
+    purity_val = total_majority / len(a_clean)
+    return (purity_val, outlier_perc) if outliers else purity_val
 
-# Activity 2: DBSCAN parameter search
+# Activity 2: Clustering with DBSCAN
 def find_best_dbscan(X, y_true, max_evaluations=5000):
-    """
-    Find best DBSCAN parameters that maximize purity with constraints:
-    - 3 to 13 clusters
-    - <= 15% outliers
-    """
     best_purity = 0
     best_params = None
     best_labels = None
     evaluations = 0
     
-    # Parameter ranges to search
-    eps_values = np.linspace(0.5, 10.0, 50)
-    min_samples_values = range(2, 20)
-    
+    #parameter ranges
+    eps_values = np.linspace(0.1, 15.0, 80) 
+    min_samples_values = range(2, 30)
     for eps, min_samples in product(eps_values, min_samples_values):
         if evaluations >= max_evaluations:
             break
             
         dbscan = DBSCAN(eps=eps, min_samples=min_samples)
         labels = dbscan.fit_predict(X)
-        
-        # Count clusters (excluding outliers)
         n_clusters = len(set(labels)) - (1 if -1 in labels else 0)
         
-        # Check constraints
         if 3 <= n_clusters <= 13:
             purity_val, outlier_perc = purity(labels, y_true, outliers=True)
-            
             if outlier_perc <= 0.15 and purity_val > best_purity:
                 best_purity = purity_val
                 best_params = (eps, min_samples, n_clusters, outlier_perc)
                 best_labels = labels
+                print(f"New best: eps={eps:.3f}, min_samples={min_samples}, clusters={n_clusters}, outliers={outlier_perc:.3f}, purity={purity_val:.3f}")
                 
         evaluations += 1
     
-    return best_params, best_labels, best_purity
+    return best_params, best_labels
 
-# Activity 3: K-means clustering with elbow method
+# Activity 3: Clustering with K-means
 def kmeans_analysis(X, y_true, k_range=range(2, 14)):
-    """
-    Run K-means for different k values and compute SSE and purity
-    """
+    k_values = list(k_range)
     sse_values = []
     purity_values = []
     cluster_centers_list = []
     labels_list = []
-    
-    k_values = list(k_range)
-    
+
     for k in k_values:
-        kmeans = KMeans(n_clusters=k, random_state=42, n_init=10)
+        kmeans = KMeans(n_clusters=k, random_state=42, n_init=20) 
         labels = kmeans.fit_predict(X)
         
-        # Calculate SSE
-        sse = kmeans.inertia_
-        sse_values.append(sse)
-        
-        # Calculate purity
-        purity_val = purity(labels, y_true)
-        purity_values.append(purity_val)
-        
+        sse_values.append(kmeans.inertia_)
+        purity_values.append(purity(labels, y_true))
         cluster_centers_list.append(kmeans.cluster_centers_)
         labels_list.append(labels)
     
     return k_values, sse_values, purity_values, cluster_centers_list, labels_list
 
-# Visualization functions
-def plot_clustering_results(X, labels, title, true_labels=None):
-    plt.figure(figsize=(12, 5))
+def main():
+    #load data
+    data = np.loadtxt('complex9_gn8.txt', delimiter=',')
+    X = data[:, :2]
+    y_true = data[:, 2].astype(int)
     
-    if true_labels is not None:
-        plt.subplot(1, 2, 1)
-        scatter = plt.scatter(X[:, 0], X[:, 1], c=true_labels, cmap='tab10', alpha=0.7)
-        plt.title('True Classes')
-        plt.colorbar(scatter)
+    # Activity 2: DBSCAN
+    best_dbscan_params, best_dbscan_labels = find_best_dbscan(X, y_true)
     
-    plt.subplot(1, 2, int(true_labels is not None) + 1)
+    # Activity 3: K-means
+    k_values, sse_values, purity_values, cluster_centers_list, labels_list = kmeans_analysis(X, y_true)
     
-    # Handle outliers (label -1)
-    outlier_mask = labels == -1
-    non_outlier_mask = ~outlier_mask
+    # Find best k
+    best_k = 9 
+    best_k_idx = k_values.index(best_k)
     
-    if np.any(outlier_mask):
-        plt.scatter(X[outlier_mask, 0], X[outlier_mask, 1], 
-                   c='black', marker='x', alpha=0.5, label='Outliers')
-    
-    scatter = plt.scatter(X[non_outlier_mask, 0], X[non_outlier_mask, 1], 
-                         c=labels[non_outlier_mask], cmap='tab10', alpha=0.7)
-    plt.title(title)
-    plt.colorbar(scatter)
-    if np.any(outlier_mask):
-        plt.legend()
-    
-    plt.tight_layout()
-    plt.show()
+    #generate plots and print results
+    generate_plots_and_output(X, y_true, best_dbscan_params, best_dbscan_labels, 
+                            k_values, sse_values, purity_values, cluster_centers_list, 
+                            labels_list, best_k, best_k_idx)
 
-def plot_elbow_curve(k_values, sse_values, purity_values):
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
+def generate_plots_and_output(X, y_true, best_dbscan_params, best_dbscan_labels,
+                           k_values, sse_values, purity_values, cluster_centers_list,
+                           labels_list, best_k, best_k_idx):
     
-    # SSE plot
+    # DBSCAN plot
+    if best_dbscan_params:
+        eps, min_samples, n_clusters, outlier_perc = best_dbscan_params
+        dbscan_purity = purity(best_dbscan_labels, y_true)
+        
+        plt.figure(figsize=(8, 6))
+        outlier_mask = best_dbscan_labels == -1
+        plt.scatter(X[outlier_mask, 0], X[outlier_mask, 1], c='black', marker='x', alpha=0.5, label='Outliers')
+        plt.scatter(X[~outlier_mask, 0], X[~outlier_mask, 1], c=best_dbscan_labels[~outlier_mask], cmap='tab10')
+        plt.title(f'Best DBSCAN: eps={eps:.2f}, min_samples={min_samples}\nClusters: {n_clusters}, Purity: {dbscan_purity:.3f}')
+        plt.colorbar()
+        plt.savefig('figure1_dbscan.png', dpi=300, bbox_inches='tight')
+        plt.show()
+    else:
+        dbscan_purity = 0
+        print("No valid DBSCAN parameters found")
+    
+    # K-means plots
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
     ax1.plot(k_values, sse_values, 'bo-')
     ax1.set_xlabel('Number of clusters (k)')
     ax1.set_ylabel('SSE')
-    ax1.set_title('Elbow Method - SSE vs Number of Clusters')
-    ax1.grid(True, alpha=0.3)
-    
-    # Purity plot
+    ax1.set_title('SSE vs Number of Clusters')
+    ax1.grid(True)
+
     ax2.plot(k_values, purity_values, 'ro-')
     ax2.set_xlabel('Number of clusters (k)')
     ax2.set_ylabel('Purity')
     ax2.set_title('Purity vs Number of Clusters')
-    ax2.grid(True, alpha=0.3)
-    
-    plt.tight_layout()
+    ax2.grid(True)
+    plt.savefig('figure2_elbow_purity.png', dpi=300, bbox_inches='tight')
     plt.show()
+    
+    # Best K-means clustering
+    plt.figure(figsize=(8, 6))
+    scatter = plt.scatter(X[:, 0], X[:, 1], c=labels_list[best_k_idx], cmap='tab10')
+    plt.scatter(cluster_centers_list[best_k_idx][:, 0], cluster_centers_list[best_k_idx][:, 1], 
+            marker='x', s=200, linewidths=3, color='black', label='Centroids')
+    cbar = plt.colorbar(scatter, ticks=range(best_k))
+    cbar.set_ticklabels(range(best_k))
 
-# Main execution
-def main():
-    # Load data
-    X, y_true = load_data('complex9_gn8.txt')
+    plt.title(f'Best K-means: k={best_k}, Purity: {purity_values[best_k_idx]:.3f}')
+    plt.legend()
+    plt.savefig('figure3_kmeans.png', dpi=300, bbox_inches='tight')
+    plt.show()
     
-    print("Dataset shape:", X.shape)
-    print("Unique true classes:", np.unique(y_true))
-    
-    # Standardize the data (important for DBSCAN)
-    scaler = StandardScaler()
-    X_scaled = scaler.fit_transform(X)
-    
-    # Activity 1: Test purity function
-    print("\n" + "="*50)
-    print("ACTIVITY 1: Purity Measure")
-    print("="*50)
-    
-    # Test with some dummy data
-    test_labels = np.array([0, 0, 1, 1, 0, 2, 2, 2])
-    test_true = np.array([0, 0, 0, 1, 1, 2, 2, 2])
-    test_purity = purity(test_labels, test_true)
-    print(f"Test purity: {test_purity:.3f}")
-    
-    # Activity 2: DBSCAN clustering
-    print("\n" + "="*50)
-    print("ACTIVITY 2: DBSCAN Clustering")
-    print("="*50)
-    
-    best_params, best_dbscan_labels, best_dbscan_purity = find_best_dbscan(X_scaled, y_true)
-    
-    if best_params:
-        eps, min_samples, n_clusters, outlier_perc = best_params
-        print(f"Best DBSCAN parameters:")
-        print(f"  epsilon: {eps:.3f}")
-        print(f"  min_samples: {min_samples}")
-        print(f"  Number of clusters: {n_clusters}")
-        print(f"  Outlier percentage: {outlier_perc:.3f}")
-        print(f"  Purity: {best_dbscan_purity:.3f}")
-        
-        # Visualize best DBSCAN clustering
-        plot_clustering_results(X, best_dbscan_labels, 
-                              f'Best DBSCAN Clustering (Purity: {best_dbscan_purity:.3f})',
-                              y_true)
-    else:
-        print("No valid DBSCAN parameters found within constraints")
-    
-    # Activity 3: K-means clustering
-    print("\n" + "="*50)
-    print("ACTIVITY 3: K-means Clustering")
-    print("="*50)
-    
-    k_values, sse_values, purity_values, centers_list, labels_list = kmeans_analysis(X, y_true)
-    
-    # Plot elbow curve and purity
-    plot_elbow_curve(k_values, sse_values, purity_values)
-    
-    # Find best k using elbow method (simple gradient-based approach)
-    gradients = np.diff(sse_values)
-    gradient_changes = np.diff(gradients)
-    elbow_points = []
-    
-    for i in range(1, len(gradient_changes)-1):
-        if gradient_changes[i] * gradient_changes[i-1] < 0:  # Sign change
-            elbow_points.append(k_values[i+1])
-    
-    print("Potential elbow points (k values):", elbow_points)
-    
-    # Select best k (you can choose based on your observation)
-    best_k = elbow_points[0] if elbow_points else 9  # Default to 9 if no clear elbow
-    best_k_idx = k_values.index(best_k)
-    
-    print(f"\nSelected k: {best_k}")
-    print(f"SSE for k={best_k}: {sse_values[best_k_idx]:.3f}")
-    print(f"Purity for k={best_k}: {purity_values[best_k_idx]:.3f}")
-    print(f"Cluster centroids for k={best_k}:")
-    for i, center in enumerate(centers_list[best_k_idx]):
+    # Print results
+    print("Activity 2 - Best DBSCAN Results:")
+    if best_dbscan_params:
+        print(f"eps: {best_dbscan_params[0]:.3f}, min_samples: {best_dbscan_params[1]}")
+        print(f"Clusters: {best_dbscan_params[2]}, Outliers: {best_dbscan_params[3]:.3f}")
+        print(f"Purity: {dbscan_purity:.3f}")
+
+    print("\nActivity 3 - Best K-means Results:")
+    print(f"Selected k: {best_k}")
+    print(f"SSE: {sse_values[best_k_idx]:.3f}")
+    print(f"Purity: {purity_values[best_k_idx]:.3f}")
+    print("Cluster centroids:")
+    for i, center in enumerate(cluster_centers_list[best_k_idx]):
         print(f"  Cluster {i}: ({center[0]:.3f}, {center[1]:.3f})")
-    
-    # Visualize best K-means clustering
-    best_kmeans_labels = labels_list[best_k_idx]
-    plot_clustering_results(X, best_kmeans_labels,
-                          f'Best K-means Clustering (k={best_k}, Purity: {purity_values[best_k_idx]:.3f})',
-                          y_true)
-    
-    # Activity 4: Comparison
-    print("\n" + "="*50)
-    print("ACTIVITY 4: Algorithm Comparison")
-    print("="*50)
-    
-    if best_params:
-        dbscan_purity = best_dbscan_purity
-    else:
-        # If no valid DBSCAN found, run a default one for comparison
-        dbscan = DBSCAN(eps=2.0, min_samples=5)
-        dbscan_labels = dbscan.fit_predict(X_scaled)
-        dbscan_purity = purity(dbscan_labels, y_true)
-    
-    kmeans_purity = purity_values[best_k_idx]
-    
+
+    print("\nActivity 3c - Algorithm Comparison:")
     print(f"DBSCAN Purity: {dbscan_purity:.3f}")
-    print(f"K-means Purity: {kmeans_purity:.3f}")
-    
-    if dbscan_purity > kmeans_purity:
-        print("DBSCAN performed better for this dataset")
-    else:
-        print("K-means performed better for this dataset")
+    print(f"K-means Purity: {purity_values[best_k_idx]:.3f}")
 
 if __name__ == "__main__":
     main()
